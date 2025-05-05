@@ -1,19 +1,11 @@
 import Quartz
-import threading
-from enum import Enum
+from mouse.button import Button
 import time
 
 
 # TODO: add error handling
 
-
-class Button(Enum):
-    left = 0
-    right = 1
-    middle = 2
-
-
-class Controller:
+class MouseController:
     """
     A macOS mouse controller using Quartz.
 
@@ -32,7 +24,7 @@ class Controller:
 
     Notes
     -----
-    All coordinates are specified in screen space (origin at bottom-left).
+    All coordinates are specified in screen space (origin at top-left).
     This implementation is specific to macOS and depends on the Quartz CoreGraphics framework.
     """
     @property
@@ -105,9 +97,9 @@ class Controller:
         ----------
         button : Button
             The mouse button to click. Supported values are:
-                - Button.left: Left-click
-                - Button.right: Right-click
-                - Button.middle: Middle-click
+                - button.py.left: Left-click
+                - button.py.right: Right-click
+                - button.py.middle: Middle-click
         count : int, optional
             Number of times to click. Use 2 for double-click, 3 for triple-click, etc. Default is 1.
         delay : float, optional
@@ -153,9 +145,9 @@ class Controller:
         ----------
         button : Button
             The mouse button to press. Supported values are:
-                - Button.left: Left-click
-                - Button.right: Right-click
-                - Button.middle: Middle-click
+                - button.py.left: Left-click
+                - button.py.right: Right-click
+                - button.py.middle: Middle-click
         """
         current_position = self.position
 
@@ -182,9 +174,9 @@ class Controller:
         ----------
         button : Button
             The mouse button to release. Supported values are:
-                - Button.left: Left-click
-                - Button.right: Right-click
-                - Button.middle: Middle-click
+                - button.py.left: Left-click
+                - button.py.right: Right-click
+                - button.py.middle: Middle-click
         """
         current_position = self.position
 
@@ -215,9 +207,9 @@ class Controller:
             The vertical distance to drag the cursor (positive is down, negative is up).
         button : Button
             The mouse button to use when dragging. Supported values are:
-                - Button.left: Left-click
-                - Button.right: Right-click
-                - Button.middle: Middle-click
+                - button.py.left: Left-click
+                - button.py.right: Right-click
+                - button.py.middle: Middle-click
         steps : int, optional
             The number of intermediate steps to smooth the movement. Default is 20 (some smoothing).
         delay : float, optional
@@ -298,141 +290,3 @@ class Controller:
             Quartz.CGEventPost(Quartz.kCGHIDEventTap, event)
 
             time.sleep(0 if steps == 1 else delay)
-
-
-class MouseListener:
-    """
-    Listens for global mouse events on macOS using Quartz.
-
-    Supports mouse movement, button clicks, and scroll events. Event handlers
-    can be passed in for each type of event. Returning `False` from a handler
-    blocks further propagation of the event.
-
-    This class can be used as a context manager (with the `with` statement) or
-    managed manually using `start()` and `stop()`.
-
-    Parameters
-    ----------
-    on_move : Callable[[tuple[float, float]], Optional[bool]], optional
-        Function called when the mouse moves. Receives (x, y) coordinates.
-    on_click : Callable[[tuple[float, float], str, bool], Optional[bool]], optional
-        Function called on mouse button press/release. Receives (x, y), button name, and pressed state.
-    on_scroll : Callable[[tuple[float, float], int, int], Optional[bool]], optional
-        Function called on scroll events. Receives (x, y), dx, and dy scroll deltas.
-    """
-
-    def __init__(self, on_move=None, on_click=None, on_scroll=None):
-        self.on_move = on_move
-        self.on_click = on_click
-        self.on_scroll = on_scroll
-        self.tap = None
-        self.source = None
-        self._thread = None
-        self._running = False
-
-    def _callback(self, proxy, event_type, event, refcon):
-        """
-        Internal callback invoked for each intercepted mouse event.
-        Dispatches to the appropriate handler (move, click, scroll).
-        """
-        loc = Quartz.CGEventGetLocation(event)
-
-        if event_type == Quartz.kCGEventMouseMoved and self.on_move:
-            should_propagate = self.on_move((loc.x, loc.y))
-            if should_propagate is False:
-                return None  # Block the event
-
-        elif event_type in (Quartz.kCGEventLeftMouseDown, Quartz.kCGEventLeftMouseUp,
-                            Quartz.kCGEventRightMouseDown, Quartz.kCGEventRightMouseUp,
-                            Quartz.kCGEventOtherMouseDown, Quartz.kCGEventOtherMouseUp
-                            ):
-            if self.on_click:
-                button_number = Quartz.CGEventGetIntegerValueField(event, Quartz.kCGMouseEventButtonNumber)
-                button = {0: "left", 1: "right", 2: "middle"}.get(button_number, f"button{button_number}")
-                pressed = event_type in (Quartz.kCGEventLeftMouseDown, Quartz.kCGEventRightMouseDown)
-                should_propagate = self.on_click((loc.x, loc.y), button, pressed)
-                if should_propagate is False:
-                    return None
-
-        elif event_type == Quartz.kCGEventScrollWheel and self.on_scroll:
-            dy = Quartz.CGEventGetIntegerValueField(event, Quartz.kCGScrollWheelEventDeltaAxis1)
-            dx = Quartz.CGEventGetIntegerValueField(event, Quartz.kCGScrollWheelEventDeltaAxis2)
-            should_propagate = self.on_scroll((loc.x, loc.y), dx, dy)
-            if should_propagate is False:
-                return None
-
-        return event  # Allow the event through
-
-    def __enter__(self):
-        """
-        Initializes the event tap and starts listening.
-        Used when entering a context block.
-        """
-        self._setup()
-        return self
-
-    def __exit__(self, *args):
-        """
-        Initializes the event tap and starts listening.
-        Used when entering a context block.
-        """
-        self.stop()
-
-    def _setup(self):
-        """
-        Sets up the Quartz event tap and registers it with the run loop.
-        """
-        event_mask = (
-                Quartz.CGEventMaskBit(Quartz.kCGEventMouseMoved) |
-                Quartz.CGEventMaskBit(Quartz.kCGEventLeftMouseDown) |
-                Quartz.CGEventMaskBit(Quartz.kCGEventLeftMouseUp) |
-                Quartz.CGEventMaskBit(Quartz.kCGEventRightMouseDown) |
-                Quartz.CGEventMaskBit(Quartz.kCGEventRightMouseUp) |
-                Quartz.CGEventMaskBit(Quartz.kCGEventOtherMouseDown) |
-                Quartz.CGEventMaskBit(Quartz.kCGEventOtherMouseUp) |
-                Quartz.CGEventMaskBit(Quartz.kCGEventScrollWheel)
-        )
-        self.tap = Quartz.CGEventTapCreate(
-            Quartz.kCGSessionEventTap,
-            Quartz.kCGHeadInsertEventTap,
-            Quartz.kCGEventTapOptionDefault,
-            event_mask,
-            self._callback,
-            None
-        )
-        if not self.tap:
-            raise RuntimeError("Failed to create event tap.")
-        self.source = Quartz.CFMachPortCreateRunLoopSource(None, self.tap, 0)
-        Quartz.CFRunLoopAddSource(Quartz.CFRunLoopGetCurrent(), self.source, Quartz.kCFRunLoopCommonModes)
-        Quartz.CGEventTapEnable(self.tap, True)
-
-    def start(self):
-        """
-        Starts the mouse listener in a background thread.
-        """
-        if self._running:
-            return
-        self._running = True
-
-        def run():
-            self.__enter__()
-            Quartz.CFRunLoopRun()
-
-        self._thread = threading.Thread(target=run, daemon=True)
-        self._thread.start()
-
-    def stop(self):
-        """
-        Stops the run loop and disables the event tap.
-        """
-        if self._running:
-            Quartz.CFRunLoopStop(Quartz.CFRunLoopGetCurrent())
-            self._running = False
-            self._thread.join()
-            self._thread = None
-
-    def join(self):
-        """
-        Blocks the current thread until the run loop is stopped.
-        """
-        Quartz.CFRunLoopRun()

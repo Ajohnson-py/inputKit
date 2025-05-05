@@ -1,37 +1,27 @@
-from mouse import Controller, Button, MouseListener
-import Quartz
+from mouse.listener import MouseListener
 import time
 
 '''
-mouse = Controller()
-# time.sleep(5)
-# mouse.scroll(0, 100, steps=20)
-# time.sleep(2)
-# mouse.scroll(100, 0, steps=20)
-time.sleep(5)
-# mouse.click(Button.middle, 2)
-mouse.position = (500, 50)
+keyboard = KeyboardController()
 time.sleep(3)
-mouse.drag(0, 500, Button.left)
-# print(mouse.position)
+keyboard.press(Key.SHIFT)
+time.sleep(3)
+keyboard.release(Key.SHIFT)
 '''
 
 
-def moved(position):
-    print(position)
-    return True
+def on_move(position):
+    print(f"Mouse moved to {position}")
 
 
-def scrolled(position, dx, dy):
-    print(position)
-    return False
+def on_click(position, button, pressed):
+    print(f"Mouse clicked at {position} with the {button} button, and pressed = {pressed}")
 
 
-def clicked(position, x, y):
-    print(y)
+def on_scroll(position, dx, dy):
+    print(f"Mouse scrolled at {position} by dx = {dx} and dy = {dy}")
 
 
-listener = MouseListener(on_click=clicked)
-listener.start()
-time.sleep(10)
-listener.stop()
+time.sleep(3)
+with MouseListener(on_move=on_move, on_scroll=on_scroll, on_click=on_click) as listener:
+    listener.join()
