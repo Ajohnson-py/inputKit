@@ -1,3 +1,5 @@
+from keyboard.key import keycode_to_key_enum
+
 KEYCODE_CHAR_MAP = {
     0: 'a',
     1: 's',
@@ -102,3 +104,25 @@ def char_to_keycode(char: str) -> tuple[int, bool] | None:
             return key, False
 
     return None
+
+
+def get_key_info(keycode, flags=None) -> dict:
+    """
+    Gets comprehensive key information for a given keycode.
+    """
+    key_enum = keycode_to_key_enum(keycode)
+    char = KEYCODE_CHAR_MAP.get(keycode)
+
+    # Determine the name - prefer enum name, fallback to char, then generic
+    if key_enum:
+        name = key_enum.name.lower()
+    elif char:
+        name = char
+    else:
+        name = f"key_{keycode}"
+
+    return {
+        'key_enum': key_enum,
+        'name': name,
+        'keycode': keycode
+    }

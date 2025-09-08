@@ -1,7 +1,6 @@
-import traceback
-
 import Quartz
 import threading
+import traceback
 import logging
 
 logger = logging.getLogger(__name__)
@@ -22,10 +21,13 @@ class MouseListener:
     ----------
     on_move : Callable[[tuple[float, float]], Optional[bool]], optional
         Function called when the mouse moves. Receives (x, y) coordinates.
+        Return False to block the event, True or None to allow it.
     on_click : Callable[[tuple[float, float], str, bool], Optional[bool]], optional
         Function called on mouse button press/release. Receives (x, y), button name, and pressed state.
+        Return False to block the event, True or None to allow it.
     on_scroll : Callable[[tuple[float, float], int, int], Optional[bool]], optional
         Function called on scroll events. Receives (x, y), dx, and dy scroll deltas.
+        Return False to block the event, True or None to allow it.
     on_error : Callable[[dict], None], optional
         Function called when an exception occurs inside a handler. Receives a dictionary
         containing error context including 'handler', 'args', 'exception', and 'traceback'.
@@ -41,7 +43,50 @@ class MouseListener:
         self._thread = None
         self._running = False
 
+    def _setup(self) -> None:
+        """
+        Sets up the Quartz event tap and registers it with the run loop.
+        """
+        event_mask = (
+                Quartz.CGEventMaskBit(Quartz.kCGEventMouseMoved) |
+                Quartz.CGEventMaskBit(Quartz.kCGEventLeftMouseDown) |
+                Quartz.CGEventMaskBit(Quartz.kCGEventLeftMouseUp) |
+                Quartz.CGEventMaskBit(Quartz.kCGEventRightMouseDown) |
+                Quartz.CGEventMaskBit(Quartz.kCGEventRightMouseUp) |
+                Quartz.CGEventMaskBit(Quartz.kCGEventOtherMouseDown) |
+                Quartz.CGEventMaskBit(Quartz.kCGEventOtherMouseUp) |
+                Quartz.CGEventMaskBit(Quartz.kCGEventScrollWheel)
+        )
+        self.tap = Quartz.CGEventTapCreate(
+            Quartz.kCGSessionEventTap,
+            Quartz.kCGHeadInsertEventTap,
+            Quartz.kCGEventTapOptionDefault,
+            event_mask,
+            self._callback,
+            None
+        )
+
+        if not self.tap:
+            logger.critical("Failed to create event tap.")
+            raise RuntimeError("Failed to create event tap.")
+
+        self.source = Quartz.CFMachPortCreateRunLoopSource(None, self.tap, 0)
+        Quartz.CFRunLoopAddSource(Quartz.CFRunLoopGetCurrent(), self.source, Quartz.kCFRunLoopCommonModes)
+        Quartz.CGEventTapEnable(self.tap, True)
+
     def _safe_call(self, func, *args) -> bool:
+        """
+        Invokes a handler safely, catching and reporting any exceptions.
+
+        If `on_error` is defined, the exception is passed to it as a structured dict.
+        Otherwise, the error is logged.
+
+        Returns
+        -------
+        bool
+            True to continue event propagation, or the handler's actual return value.
+            If an exception occurs, defaults to True (do not block the event).
+        """
         try:
             return func(*args)
         except Exception as e:
@@ -78,6 +123,7 @@ class MouseListener:
             if self.on_click:
                 button_number = Quartz.CGEventGetIntegerValueField(event, Quartz.kCGMouseEventButtonNumber)
                 button = {0: "left", 1: "right", 2: "middle"}.get(button_number, f"button{button_number}")
+                print(button)
                 pressed = event_type in (Quartz.kCGEventLeftMouseDown, Quartz.kCGEventRightMouseDown)
                 should_propagate = self._safe_call(self.on_click, (loc.x, loc.y), button, pressed)
                 if should_propagate is False:
@@ -91,35 +137,6 @@ class MouseListener:
                 return None  # Block the event
 
         return event  # Allow the event through
-
-    def _setup(self):
-        """
-        Sets up the Quartz event tap and registers it with the run loop.
-        """
-        event_mask = (
-                Quartz.CGEventMaskBit(Quartz.kCGEventMouseMoved) |
-                Quartz.CGEventMaskBit(Quartz.kCGEventLeftMouseDown) |
-                Quartz.CGEventMaskBit(Quartz.kCGEventLeftMouseUp) |
-                Quartz.CGEventMaskBit(Quartz.kCGEventRightMouseDown) |
-                Quartz.CGEventMaskBit(Quartz.kCGEventRightMouseUp) |
-                Quartz.CGEventMaskBit(Quartz.kCGEventOtherMouseDown) |
-                Quartz.CGEventMaskBit(Quartz.kCGEventOtherMouseUp) |
-                Quartz.CGEventMaskBit(Quartz.kCGEventScrollWheel)
-        )
-        self.tap = Quartz.CGEventTapCreate(
-            Quartz.kCGSessionEventTap,
-            Quartz.kCGHeadInsertEventTap,
-            Quartz.kCGEventTapOptionDefault,
-            event_mask,
-            self._callback,
-            None
-        )
-        if not self.tap:
-            logger.critical("Failed to create event tap.")
-            raise RuntimeError("Failed to create event tap.")
-        self.source = Quartz.CFMachPortCreateRunLoopSource(None, self.tap, 0)
-        Quartz.CFRunLoopAddSource(Quartz.CFRunLoopGetCurrent(), self.source, Quartz.kCFRunLoopCommonModes)
-        Quartz.CGEventTapEnable(self.tap, True)
 
     def __enter__(self):
         """
